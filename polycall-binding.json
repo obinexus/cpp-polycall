@@ -5,7 +5,12 @@
   "adapter": true,
   "ffi": true,
   "config": "cpp-polycallrc",
-  "core": "../../src",
+  "core": "../libpolycall",
+  "entrypoint": "include/cpp_polycall/polycall.hpp",
+  "implementation": "src/polycall.cpp",
+  "build": "make",
+  "cmake": "CMakeLists.txt",
+  "test": "npm test",
   "license": "MIT OBINexus",
-  "author": "Nnamdi Michael Okpala"
+  "author": "Nnamdi Michael Okpala <okpalan@protonmail.com>"
 }
