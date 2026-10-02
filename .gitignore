@@ -1,5 +1,9 @@
 /build/
-/cmake-build/
+/cmake-build*/
+/*-build/
 /lib/
 *.o
 *.obj
+*.tgz
+.polycall-qa.*
+cpp_cli_*

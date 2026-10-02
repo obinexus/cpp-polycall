@@ -1,10 +1,18 @@
+# cpp-polycall -- GNU Make build (Linux / MSYS2). The installed Polycall core
+# is found with pkg-config (PKG_CONFIG_PATH=<prefix>/lib/pkgconfig); CMake
+# users use CMakeLists.txt (find_package(polycall)).
 CXX ?= g++
 AR ?= ar
+PKG_CONFIG ?= pkg-config
+
+POLYCALL_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags polycall 2>/dev/null)
+POLYCALL_LIBS ?= $(shell $(PKG_CONFIG) --libs polycall 2>/dev/null)
 
 CPPFLAGS ?=
-CPPFLAGS += -Iinclude -Igenerated
-CXXFLAGS ?= -O2
+CPPFLAGS += -Iinclude $(POLYCALL_CFLAGS)
+CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic
+LDLIBS += $(POLYCALL_LIBS) -pthread
 
 BUILD_DIR := build
 LIB_DIR := lib
@@ -22,55 +30,40 @@ endif
 .DEFAULT_GOAL := all
 
 .PHONY: all
-all: $(STATIC_LIB)
+all: check-core $(STATIC_LIB)
+
+.PHONY: check-core
+check-core:
+	@test -n "$(POLYCALL_LIBS)" || { echo "cpp-polycall: pkg-config cannot find polycall (>= 1.1.0); set PKG_CONFIG_PATH=<prefix>/lib/pkgconfig" >&2; exit 2; }
 
 $(BUILD_DIR) $(LIB_DIR):
-ifeq ($(OS),Windows_NT)
-	@if not exist "$@" mkdir "$@"
-else
 	@mkdir -p $@
-endif
 
-$(ADAPTER_OBJ): src/polycall.cpp include/cpp_polycall/polycall.hpp generated/polycall/polycall_ffi.h | $(BUILD_DIR)
+$(ADAPTER_OBJ): src/polycall.cpp include/cpp_polycall/polycall.hpp | $(BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 $(STATIC_LIB): $(ADAPTER_OBJ) | $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-$(TEST_BIN): src/polycall.cpp tests/polycall_ffi_mock.cpp tests/cpp_polycall_test.cpp | $(BUILD_DIR)
-	$(CXX) $(CPPFLAGS) -Itests $(CXXFLAGS) $^ -o $@
+$(TEST_BIN): tests/real_core_test.cpp $(ADAPTER_OBJ) | $(BUILD_DIR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@ $(LDFLAGS) $(LDLIBS)
 
+# Real-core test incl. interop with the C CLI (SKIP, exit 77, without it).
 .PHONY: test
-test: $(TEST_BIN)
-	$(TEST_BIN)
+test: check-core $(TEST_BIN)
+	sh tests/run-real.sh $(TEST_BIN) .
 
 .PHONY: example
-example: $(ADAPTER_OBJ) | $(BUILD_DIR)
-ifeq ($(OS),Windows_NT)
-	@if "$(strip $(POLYCALL_LDFLAGS))"=="" (echo Set POLYCALL_LDFLAGS to the libpolycall v1.5 linker flags & exit /b 2)
-else
-	@test -n "$(POLYCALL_LDFLAGS)" || (echo "Set POLYCALL_LDFLAGS to the libpolycall v1.5 linker flags" && exit 2)
-endif
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) examples/main.cpp $(ADAPTER_OBJ) \
-		$(POLYCALL_LDFLAGS) -o $(EXAMPLE_BIN)
+example: check-core $(ADAPTER_OBJ) | $(BUILD_DIR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) examples/main.cpp $(ADAPTER_OBJ) -o $(EXAMPLE_BIN) $(LDFLAGS) $(LDLIBS)
 	$(EXAMPLE_BIN)
 
 .PHONY: verify-dry
 verify-dry:
-ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-dry.ps1
-else
 	sh scripts/verify-dry.sh
-endif
 
 .PHONY: clean
 clean:
-ifeq ($(OS),Windows_NT)
-	@if exist "$(BUILD_DIR)" rmdir /s /q "$(BUILD_DIR)"
-	@if exist "$(LIB_DIR)" rmdir /s /q "$(LIB_DIR)"
-	@if exist "cmake-build" rmdir /s /q "cmake-build"
-else
 	rm -rf $(BUILD_DIR) $(LIB_DIR) cmake-build
-endif
 
 -include $(ADAPTER_OBJ:.o=.d)

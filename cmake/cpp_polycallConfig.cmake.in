@@ -1,4 +1,8 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+# cpp_polycall::cpp_polycall links polycall::polycall (core >= 1.1, ABI 1).
+find_dependency(polycall 1.1 CONFIG)
+
 include("${CMAKE_CURRENT_LIST_DIR}/cpp_polycallTargets.cmake")
 check_required_components(cpp_polycall)

@@ -1,11 +1,11 @@
 # TODO — cpp-polycall (C++)
 
-Status: ✅ implemented reference adapter for libpolycall 1.5.0.
+Status: supported -- C++17 RAII wrapper over Polycall binding ABI v1
+(polycall >= 1.1.0).
 
-- [x] Status-returning and exception-throwing C++17 API
-- [x] `cpp-polycallrc` on the shared schema
-- [x] Installable CMake target and compatibility include
-- [x] Example driving the FFI
-- [x] Native and npm smoke tests
-- [x] npm publication metadata and source allowlist
-- [ ] Publish to the C++ package registry (post-1.5.0)
+- [x] `run_config` / `run_config_or_throw` kept, plus strict/validate mode
+- [x] Version + ABI check, `describe`, `call`, RAII `Peer`, `polycall::Error`
+- [x] Links the installed core via CMake (`polycall::polycall`) or pkg-config
+- [x] Real-core tests incl. interop with the C CLI (Linux GCC, Windows MSVC)
+- [x] npm source package metadata
+- [ ] Publish `@obinexusltd/cpp-polycall` (not published yet)

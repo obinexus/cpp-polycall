@@ -1,0 +1,15 @@
+# QA descriptor for the Polycall binding matrix (read by polycall/qa/run_qa.py).
+# This repository is NOT a Python package and is not pip-installable;
+# its native manifest is CMakeLists.txt (npm source package: package.json).
+[tool.polycall.binding]
+name = "cpp-polycall"
+language = "C++"
+native_manifest = "CMakeLists.txt"
+registry = "npm"
+package = "@obinexusltd/cpp-polycall"
+abi = 1
+support = "supported"
+linux_image = "node:22"
+build = "sh /qa/build-linux-core.sh && apt-get install -y g++ cmake && cmake -S . -B cmake-build -DCMAKE_PREFIX_PATH=/opt/polycall -DBUILD_TESTING=ON && cmake --build cmake-build"
+test = "ctest --test-dir cmake-build --output-on-failure"
+windows_test = "cmake -S . -B cmake-build -G \"Visual Studio 17 2022\" -A x64 -DCMAKE_PREFIX_PATH=<polycall windows-msvc-x64 prefix> -DBUILD_TESTING=ON && cmake --build cmake-build --config Release && ctest --test-dir cmake-build -C Release --output-on-failure"

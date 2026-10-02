@@ -1,11 +1,12 @@
 {
   "name": "@obinexusltd/cpp-polycall",
   "version": "1.0.0",
-  "description": "Idiomatic C++17 binding for the libpolycall 1.5.0 FFI.",
+  "description": "C++17 RAII binding for the Polycall core (polycall >= 1.1.0, binding ABI 1).",
   "keywords": [
     "cpp",
     "c++",
     "cmake",
+    "polycall",
     "libpolycall",
     "ffi"
   ],
@@ -28,7 +29,6 @@
     ".": "./index.js",
     "./src/*": "./src/*",
     "./include/*": "./include/*",
-    "./generated/*": "./generated/*",
     "./examples/*": "./examples/*",
     "./cmake/*": "./cmake/*",
     "./config": "./cpp-polycallrc",
@@ -39,7 +39,6 @@
     "index.js",
     "src/",
     "include/",
-    "generated/",
     "examples/",
     "tests/",
     "scripts/",
@@ -49,7 +48,8 @@
     "polycall-binding.json",
     "cpp-polycallrc",
     "README.md",
-    "TODO.md"
+    "TODO.md",
+    "LICENSE"
   ],
   "directories": {
     "example": "examples",
