@@ -12,11 +12,11 @@ for (const [name, file] of Object.entries(binding)) {
 }
 
 assert.equal(
-  require.resolve('@obinexusltd/cpp-polycall/src/polycall.cpp'),
+  require.resolve('cpp-polycall/src/polycall.cpp'),
   binding.source
 );
 assert.equal(
-  require.resolve('@obinexusltd/cpp-polycall/include/cpp_polycall/polycall.hpp'),
+  require.resolve('cpp-polycall/include/cpp_polycall/polycall.hpp'),
   binding.header
 );
 

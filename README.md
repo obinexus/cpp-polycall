@@ -1,7 +1,7 @@
 # cpp-polycall
 
 C++17 RAII binding for the [Polycall](https://github.com/obinexus/polycall)
-core, published as the npm source package `@obinexusltd/cpp-polycall`.
+core, published as the npm source package `cpp-polycall`.
 
 It wraps the core's **binding ABI v1** (`<polycall.h>`, `docs/BINDING_ABI.md`
 in the core repository) and requires **polycall >= 1.1.0**. The wrapper owns
@@ -130,7 +130,7 @@ binding code runs:
 ## npm source package
 
 ```sh
-npm install @obinexusltd/cpp-polycall
+npm install cpp-polycall
 ```
 
 The CommonJS entry point only exposes absolute paths for C++ build tooling

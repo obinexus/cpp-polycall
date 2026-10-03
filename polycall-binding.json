@@ -1,7 +1,7 @@
 {
   "name": "cpp-polycall",
   "version": "1.0.0",
-  "package": "@obinexusltd/cpp-polycall",
+  "package": "cpp-polycall",
   "language": "C++",
   "adapter": true,
   "ffi": true,

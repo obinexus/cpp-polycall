@@ -10,4 +10,4 @@ Status: supported -- C++17 RAII wrapper over Polycall binding ABI v1
 - [x] Loader-error test (no library, 1.0 library, ABI mismatch), non-ASCII config path, limits, concurrent calls
 - [x] valgrind, ASan+UBSan, TSan clean (Linux)
 - [x] npm source package metadata
-- [ ] Publish `@obinexusltd/cpp-polycall` (not published yet)
+- [ ] Publish `cpp-polycall` (not published yet)

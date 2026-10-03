@@ -1,5 +1,5 @@
 {
-  "name": "@obinexusltd/cpp-polycall",
+  "name": "cpp-polycall",
   "version": "1.0.0",
   "description": "C++17 RAII binding for the Polycall core (polycall >= 1.1.0, binding ABI 1).",
   "keywords": [
