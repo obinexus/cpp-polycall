@@ -7,9 +7,12 @@
 //   POLYCALL_CLI           path of the polycall program
 //   POLYCALL_CLI_PEER      host:port of a running `polycall peer serve` node
 //   POLYCALL_RPC_ENDPOINT  host:port of a running `polycall start` runtime
+//   POLYCALL_DAEMON_ENDPOINT host:port of a running `polycall daemon start`
 //   POLYCALL_DEV_TOKEN     shared token of those nodes
 // (tests/run-real.sh starts them). Without them those checks print SKIP --
-// they are never counted as passed. Every check works with NDEBUG: no assert().
+// they are never counted as passed, and the program exits 77 (CTest SKIP)
+// when any check was skipped and none failed. Every check works with
+// NDEBUG: no assert().
 #if defined(_MSC_VER)
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif
@@ -22,6 +25,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -232,6 +236,162 @@ void test_call() {
                   "call: invalid input JSON -> E_INVALID_ARGUMENT");
     out = polycall::call(ep, "debug", "echo", "", 3000);
     check(out == "{\"echo\":null}", "call: empty input is sent as null", out);
+
+    // timeout_ms boundaries: 1..600000 are valid
+    out.clear();
+    expect_status(0, status_of([&] { out = polycall::call(ep, "debug", "echo", "600000", 600000); }, &what),
+                  "call: timeout_ms 600000 (maximum) accepted", what);
+    check(out == "{\"echo\":600000}", "call: output with the maximum timeout", out);
+    const int t1 = status_of([&] { polycall::call(ep, "debug", "echo", "1", 1); }, &what);
+    check(t1 == 0 || t1 == polycall::status::timeout, "call: timeout_ms 1 (minimum) accepted",
+          std::to_string(t1) + " " + what);
+    expect_status(polycall::status::invalid_argument,
+                  status_of([&] { polycall::call(ep, "debug", "echo", "{}", 600001); }),
+                  "call: timeout_ms 600001 -> E_INVALID_ARGUMENT");
+    expect_status(polycall::status::invalid_argument,
+                  status_of([&] { polycall::call(ep, "debug", "echo", "{}", 0xFFFFFFFFu); }),
+                  "call: timeout_ms UINT32_MAX -> E_INVALID_ARGUMENT");
+
+    // concurrent calls from several threads
+    constexpr int threads = 4;
+    constexpr int per = 10;
+    std::atomic<int> good{0};
+    std::vector<std::thread> pool;
+    for (int t = 0; t < threads; ++t) {
+        pool.emplace_back([&, t] {
+            for (int i = 0; i < per; ++i) {
+                const std::string in = "{\"t\":" + std::to_string(t) + ",\"i\":" + std::to_string(i) + "}";
+                try {
+                    if (polycall::call(ep, "debug", "echo", in, 5000) == "{\"echo\":" + in + "}") {
+                        ++good;
+                    }
+                } catch (const polycall::Error&) {
+                }
+            }
+        });
+    }
+    for (auto& t : pool) {
+        t.join();
+    }
+    check(good == threads * per, "call: 4 threads x 10 concurrent calls, exact outputs",
+          std::to_string(good.load()) + " of " + std::to_string(threads * per));
+}
+
+void test_daemon_call() {
+    const std::string ep = env("POLYCALL_DAEMON_ENDPOINT");
+    if (ep.empty()) {
+        for (const char* n : {"daemon call: debug.echo", "daemon call: inventory.get",
+                              "daemon call: unknown operation", "daemon call: deadline"}) {
+            skip(n, "POLYCALL_DAEMON_ENDPOINT not set (run via tests/run-real.sh)");
+        }
+        return;
+    }
+    std::string what;
+    std::string out = polycall::call(ep, "debug", "echo", "{\"d\":[1,2,\"\xc3\xa9\"]}", 3000);
+    check(out == "{\"echo\":{\"d\":[1,2,\"\xc3\xa9\"]}}", "daemon call: debug.echo exact output", out);
+    out = polycall::call(ep, "inventory", "get", "{\"item_id\":\"widget-a\"}", 3000);
+    check(out == "{\"item_id\":\"widget-a\",\"quantity\":42,\"in_stock\":true}",
+          "daemon call: inventory.get exact output", out);
+    try {
+        polycall::call(ep, "debug", "no_such_op", "{}", 3000);
+        check(false, "daemon call: unknown operation -> E_NOT_FOUND", "no error");
+    } catch (const polycall::Error& e) {
+        check(e.status() == polycall::status::not_found && contains(e.output(), "operation.unknown"),
+              "daemon call: unknown operation -> E_NOT_FOUND + error object", e.output());
+    }
+    expect_status(polycall::status::timeout,
+                  status_of([&] { polycall::call(ep, "debug", "sleep", "{\"ms\":3000}", 200); }, &what),
+                  "daemon call: deadline exceeded -> E_TIMEOUT", what);
+}
+
+// A configuration file whose path is not ASCII (UTF-8, also on Windows).
+void test_unicode_config(const std::string& root) {
+    namespace fs = std::filesystem;
+    // "cpp-polycall-<u-umlaut>nic<o-slash>d<e-acute>-<two CJK characters>"
+    const std::string dir = "cpp-polycall-\xc3\xbcnic\xc3\xb8" "d\xc3\xa9-\xe9\x85\x8d\xe7\xbd\xae";
+    const std::string file = dir + "/r\xc3\xa9glages-polycallrc";
+    const std::string absent = dir + "/absent-\xc3\xa9-polycallrc";
+    std::error_code ec;
+    fs::remove_all(fs::u8path(dir), ec);
+    fs::create_directories(fs::u8path(dir), ec);
+    if (!ec) {
+        fs::copy_file(fs::u8path(root + "/cpp-polycallrc"), fs::u8path(file),
+                      fs::copy_options::overwrite_existing, ec);
+    }
+    check(!ec, "unicode path: fixture created", ec.message());
+    expect_status(0, polycall::run_config(file), "run_config: non-ASCII (UTF-8) config path, run=1");
+    expect_status(0, polycall::run_config(file, false), "run_config: non-ASCII (UTF-8) config path, run=0");
+    std::string desc;
+    std::string what;
+    const int ds = status_of([&] { desc = polycall::describe(file); }, &what);
+    check(ds == 0 && contains(desc, "log_level"), "describe: non-ASCII (UTF-8) config path",
+          what + desc.substr(0, 80));
+    try {
+        polycall::run_config_or_throw(absent);
+        check(false, "run_config: missing non-ASCII path -> E_NOT_FOUND", "no error");
+    } catch (const polycall::Error& e) {
+        check(e.status() == polycall::status::not_found && contains(e.detail(), "absent-\xc3\xa9-polycallrc"),
+              "run_config: missing non-ASCII path -> E_NOT_FOUND, detail keeps the UTF-8 name", e.what());
+    }
+    fs::remove_all(fs::u8path(dir), ec);
+}
+
+// Identifier lengths and caller-buffer capacities at their exact limits.
+void test_boundaries() {
+    const std::string id63(63, 'n');
+    const std::string id64(64, 'n');
+    std::string what;
+    {
+        std::string got;
+        const int st = status_of([&] { polycall::Peer p(id63); got = p.node_id(); }, &what);
+        check(st == 0 && got == id63, "open: 63-byte node id accepted", what);
+    }
+    expect_status(polycall::status::invalid_argument, status_of([&] { polycall::Peer p(id64); }),
+                  "open: 64-byte node id -> E_INVALID_ARGUMENT");
+    polycall::Peer a("cpp-bound-a");
+    polycall::Peer b("cpp-bound-b");
+    const std::string eb = b.endpoint();
+    const std::string mid63(63, 'm');
+    a.send(eb, std::string_view("id63"), mid63);
+    polycall::Message m = b.recv(5000);
+    check(m.id == mid63 && m.text() == "id63", "send: 63-byte message id delivered intact", m.id);
+    expect_status(polycall::status::invalid_argument,
+                  status_of([&] { a.send(eb, std::string_view("id64"), std::string(64, 'm')); }),
+                  "send: 64-byte message id -> E_INVALID_ARGUMENT");
+    expect_status(polycall::status::invalid_argument, status_of([&] { a.register_peer(id64, eb); }),
+                  "register: 64-byte peer id -> E_INVALID_ARGUMENT");
+
+    // snprintf rules on caller-owned buffers, raw ABI
+    char buf[POLYCALL_ENDPOINT_MAX];
+    check(polycall_peer_endpoint(b.handle(), buf, eb.size()) == POLYCALL_E_TOO_LARGE,
+          "endpoint: capacity strlen -> E_TOO_LARGE");
+    check(polycall_peer_endpoint(b.handle(), buf, eb.size() + 1) == POLYCALL_OK && eb == buf,
+          "endpoint: capacity strlen+1 -> OK");
+    std::size_t need = 0;
+    check(polycall_peer_list(b.handle(), buf, 2, &need) == POLYCALL_E_TOO_LARGE && need == 2,
+          "list: capacity 2 for \"{}\" -> E_TOO_LARGE, needed 2", std::to_string(need));
+    check(polycall_peer_list(b.handle(), buf, 3, &need) == POLYCALL_OK && need == 2 && std::string(buf) == "{}",
+          "list: capacity 3 for \"{}\" -> OK");
+
+    // payload_cap exactly the payload size (and one less)
+    a.send(eb, std::string_view("exactly-16-bytes"), "m-exact");
+    {
+        char sender[POLYCALL_PEER_ID_MAX], mid[POLYCALL_MESSAGE_ID_MAX];
+        unsigned char pl[16];
+        std::size_t len = 0;
+        const int s15 = polycall_peer_recv(b.handle(), 5000, sender, sizeof sender, mid, sizeof mid, pl, 15, &len);
+        check(s15 == POLYCALL_E_TOO_LARGE && len == 16, "recv: payload_cap = size-1 -> E_TOO_LARGE, needed 16");
+        const int s16 = polycall_peer_recv(b.handle(), 0, sender, sizeof sender, mid, sizeof mid, pl, 16, &len);
+        check(s16 == POLYCALL_OK && len == 16 &&
+                  std::string(reinterpret_cast<char*>(pl), 16) == "exactly-16-bytes",
+              "recv: payload_cap = size -> OK, exact bytes");
+    }
+    // timeout_ms 0 polls
+    const auto t0 = std::chrono::steady_clock::now();
+    expect_status(polycall::status::timeout, status_of([&] { b.recv(0); }), "recv: timeout 0 polls an empty inbox");
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - t0).count();
+    check(ms < 1000, "recv: timeout 0 returns without waiting", std::to_string(ms) + " ms");
 }
 
 void exchange(polycall::Peer& from, polycall::Peer& to, const std::string& from_id,
@@ -516,11 +676,22 @@ int main(int argc, char** argv) {
     }
     section("version", test_version_and_abi);
     section("call", test_call);
+    section("daemon call", test_daemon_call);
+    {
+        std::string what;
+        if (status_of([&] { test_unicode_config(root); }, &what) != 0) {
+            check(false, "unicode path: unexpected exception", what);
+        }
+    }
+    section("boundaries", test_boundaries);
     section("peers", test_peers);
     section("auth/transport", test_auth_and_transport);
     section("cancel/close/handles", test_cancel_close_handles);
     section("concurrency", test_concurrent_senders);
     section("interop", test_cli_interop);
     std::printf("SUMMARY pass=%d fail=%d skip=%d\n", g_pass, g_fail, g_skip);
-    return g_fail == 0 ? 0 : 1;
+    if (g_fail != 0) {
+        return 1;
+    }
+    return g_skip != 0 ? 77 : 0; // 77: CTest SKIP -- skipped checks are never a pass
 }
