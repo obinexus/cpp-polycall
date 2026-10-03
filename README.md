@@ -59,7 +59,7 @@ cmake --build cmake-build
 ctest --test-dir cmake-build --output-on-failure
 ```
 
-Windows (MSVC, x64) against an installed `polycall.dll` / `polycall.lib`:
+Windows, MSVC (x64) against an installed `polycall.dll` / `polycall.lib`:
 
 ```powershell
 cmake -S . -B cmake-build -G "Visual Studio 17 2022" -A x64 `
@@ -68,11 +68,34 @@ cmake --build cmake-build --config Release
 ctest --test-dir cmake-build -C Release --output-on-failure
 ```
 
-The test (`tests/real_core_test.cpp`) runs against the real library; CTest
-runs it through `tests/run-real.sh`, which starts `polycall peer serve` and
-`polycall start` so cross-language interop and RPC are exercised too (Git
-Bash's `sh` is used on Windows). Without the CLI those checks report `SKIP`,
-never `PASS`. See [tests/TESTS.md](tests/TESTS.md).
+Windows, MSYS2 UCRT64 (MinGW-w64 GCC) against an installed `libpolycall.dll`
+(from a UCRT64 shell, or with `C:\msys64\ucrt64\bin` first on `PATH`):
+
+```sh
+cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH=C:/path/to/polycall -DBUILD_TESTING=ON
+cmake --build cmake-build && ctest --test-dir cmake-build --output-on-failure
+```
+
+CTest runs two tests:
+
+* `cpp_polycall_real_core` -- `tests/real_core_test.cpp` against the real
+  library, through `tests/run-real.sh`, which first starts `polycall peer
+  serve`, `polycall start` and `polycall daemon start` on ephemeral loopback
+  ports (private state directory), so cross-language interop and RPC against
+  both runtimes are exercised. On Windows a plain MSYS `sh` runs the script
+  (MSYS2's or Git's `usr/bin/sh.exe`). Without the CLI those checks print
+  `SKIP` and the test exits 77, which CTest reports as *Skipped* -- never as
+  passed.
+* `cpp_polycall_loader_errors` -- `tests/loader-errors.sh`: the program
+  against the real library, no library, a library reporting ABI 2 and a 1.0
+  library without the ABI v1 symbols (the last two are test fixtures built
+  from `tests/loader/fake_polycall.cpp`).
+
+See [tests/TESTS.md](tests/TESTS.md). Tested against polycall 1.1.0 on Linux
+(Debian 13: GCC 14 and Clang 19; valgrind, ASan+UBSan and TSan clean) and on
+Windows x64 (MSVC 19.44 / VS 2022, and MSYS2 UCRT64 GCC with CMake and with
+the Makefile).
 
 GNU Make alternative (Linux / MSYS2):
 
@@ -88,10 +111,21 @@ find_package(cpp_polycall 1 CONFIG REQUIRED)   # pulls in find_package(polycall 
 target_link_libraries(my_app PRIVATE cpp_polycall::cpp_polycall)
 ```
 
-The binding links the core at build time, so a missing core is a link error
-and an old 1.0 library (without the ABI v1 symbols) fails at load time;
-`polycall::check_abi()` (also run before the first ABI call) rejects a
-library whose `polycall_ffi_abi_version()` is not 1 with a `polycall::Error`.
+`tests/consumer/` is such a project; it is built against an installed copy
+(`cmake --install`) in QA.
+
+## Loading the library
+
+The binding links the core at build time (`polycall::polycall` or
+`pkg-config polycall`), so the platform loader checks the library before any
+binding code runs:
+
+| Situation | Result |
+| --- | --- |
+| no library at link time | link error |
+| no library at run time | the loader refuses to start the program -- Linux: exit 127, `error while loading shared libraries: libpolycall.so.1: cannot open shared object file`; Windows: `polycall.dll` / `libpolycall.dll` not found (`STATUS_DLL_NOT_FOUND`) |
+| 1.0 library without the ABI v1 symbols | the loader refuses -- Linux: exit 127, `symbol lookup error: ... undefined symbol: polycall_...`; Windows: `STATUS_ENTRYPOINT_NOT_FOUND` (0xC0000139) |
+| library reporting another binding ABI | `polycall::check_abi()` -- also run before the first ABI call of every entry point -- throws `polycall::Error` (`POLYCALL_E_UNSUPPORTED`, naming both ABI versions); `run_config()` returns `POLYCALL_E_UNSUPPORTED` |
 
 ## npm source package
 
