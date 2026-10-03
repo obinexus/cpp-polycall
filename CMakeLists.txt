@@ -53,8 +53,13 @@ if(BUILD_TESTING)
     endif()
     set(_cpp_polycall_env "")
 
+    # A POSIX sh runs tests/run-real.sh. On Windows use a plain MSYS sh
+    # (MSYS2's, or Git's usr/bin) -- never Git's bin/sh.exe launcher, which
+    # puts Git's own mingw64/bin (an older libstdc++-6.dll) ahead of the
+    # MinGW toolchain on PATH, so a MinGW-built test would load the wrong
+    # C++ runtime and fail to start.
     find_program(CPP_POLYCALL_SH NAMES sh bash
-        HINTS "C:/Program Files/Git/bin" "C:/msys64/usr/bin")
+        HINTS "C:/msys64/usr/bin" "C:/Program Files/Git/usr/bin")
     if(TARGET polycall::polycall_cli AND CPP_POLYCALL_SH)
         # Full checklist incl. cross-language interop with the C CLI.
         add_test(NAME cpp_polycall_real_core
@@ -70,6 +75,37 @@ if(BUILD_TESTING)
         ENVIRONMENT "${_cpp_polycall_env}"
         SKIP_RETURN_CODE 77
         TIMEOUT 300)
+
+    # Loader behaviour (tests/loader-errors.sh): the real library, no library,
+    # a library reporting ABI 2 and a 1.0 library without the ABI v1 symbols.
+    # The two fake libraries are test fixtures, never used by other tests.
+    if(CPP_POLYCALL_SH AND TARGET polycall::polycall_shared)
+        add_executable(cpp_polycall_abi_guard tests/abi_guard_test.cpp)
+        target_link_libraries(cpp_polycall_abi_guard PRIVATE cpp_polycall::cpp_polycall)
+        # No build RPATH: the test chooses the library with LD_LIBRARY_PATH.
+        set_target_properties(cpp_polycall_abi_guard PROPERTIES SKIP_BUILD_RPATH ON)
+        foreach(_kind ABI2 OLD)
+            string(TOLOWER "${_kind}" _k)
+            add_library(cpp_polycall_fake_${_k} SHARED tests/loader/fake_polycall.cpp)
+            target_compile_definitions(cpp_polycall_fake_${_k} PRIVATE FAKE_${_kind})
+            set_target_properties(cpp_polycall_fake_${_k} PROPERTIES
+                OUTPUT_NAME polycall
+                VERSION 1.1.0
+                SOVERSION 1
+                LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fake-${_k}
+                RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fake-${_k}
+                ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fake-${_k})
+        endforeach()
+        add_test(NAME cpp_polycall_loader_errors
+            COMMAND ${CPP_POLYCALL_SH} ${CMAKE_CURRENT_SOURCE_DIR}/tests/loader-errors.sh
+                    $<TARGET_FILE:cpp_polycall_abi_guard>
+                    $<TARGET_FILE:polycall::polycall_shared>
+                    $<TARGET_FILE:cpp_polycall_fake_abi2>
+                    $<TARGET_FILE:cpp_polycall_fake_old>)
+        set_tests_properties(cpp_polycall_loader_errors PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 120)
+    endif()
 endif()
 
 if(CPP_POLYCALL_BUILD_EXAMPLE)

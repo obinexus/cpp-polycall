@@ -7,3 +7,4 @@
 *.tgz
 .polycall-qa.*
 cpp_cli_*
+.loader-errors.*
